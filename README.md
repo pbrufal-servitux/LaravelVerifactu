@@ -5,7 +5,6 @@
 
 <p align="center">
 <a href="https://scrutinizer-ci.com/g/squareetlabs/LaravelVerifactu/"><img src="https://scrutinizer-ci.com/g/squareetlabs/LaravelVerifactu/badges/quality-score.png?b=master" alt="Quality Score"></a>
-<a href="https://scrutinizer-ci.com/g/squareetlabs/LaravelVerifactu/"><img src="https://scrutinizer-ci.com/g/squareetlabs/LaravelVerifactu/badges/build.png?b=master" alt="Build Status"></a>
 <a href="https://scrutinizer-ci.com/g/squareetlabs/LaravelVerifactu/"><img src="https://scrutinizer-ci.com/g/squareetlabs/LaravelVerifactu/badges/code-intelligence.svg?b=master" alt="Code Intelligence"></a>
 <a href="https://packagist.org/packages/squareetlabs/laravel-verifactu"><img class="latest_stable_version_img" src="https://poser.pugx.org/squareetlabs/laravel-verifactu/v/stable" alt="Latest Stable Version"></a>
 <a href="https://packagist.org/packages/squareetlabs/laravel-verifactu"><img class="total_img" src="https://poser.pugx.org/squareetlabs/laravel-verifactu/downloads" alt="Total Downloads"></a> 
