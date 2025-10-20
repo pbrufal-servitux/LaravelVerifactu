@@ -9,6 +9,11 @@ use GuzzleHttp\Exception\GuzzleException;
 use Squareetlabs\VeriFactu\Models\Invoice;
 use Illuminate\Support\Facades\Log;
 
+use Squareetlabs\VeriFactu\Enums\InvoiceType;
+use Squareetlabs\VeriFactu\Enums\TaxType;
+use Squareetlabs\VeriFactu\Enums\RegimeType;
+use Squareetlabs\VeriFactu\Enums\OperationType;
+
 class AeatClient
 {
     private string $baseUri;
@@ -68,13 +73,46 @@ class AeatClient
         // 4. Mapear desgloses (Breakdown)
         $desgloses = [];
         foreach ($invoice->breakdowns as $breakdown) {
-            $desgloses[] = [
-                'TipoImpositivo' => $breakdown->tax_rate,                
-                'CuotaRepercutida' => $breakdown->tax_amount,                		        
-		        'BaseImponibleOimporteNoSujeto' => $breakdown->base_amount,
-		        'Impuesto' => '01',
-		        'ClaveRegimen' => '01',
-		        'CalificacionOperacion' => 'S1'                
+		$desgloses[] = [
+                'TipoImpositivo' => $breakdown->tax_rate,
+		'CuotaRepercutida' => $breakdown->tax_amount,
+		'BaseImponibleOimporteNoSujeto' => $breakdown->base_amount,
+		'Impuesto' => '01',
+		'ClaveRegimen' => '01',
+		'CalificacionOperacion' => 'S1'
+            ];
+	}
+
+
+    /* encadenamiento xml: 
+    <Encadenamiento>
+        <RegistroAnterior>
+          <IDEmisorFactura>XXXXXXXXX</IDEmisorFactura>
+          <NumSerieFactura>B00000334</NumSerieFactura>
+          <FechaExpedicionFactura>24-03-2025</FechaExpedicionFactura>
+          <Huella>AD25AE1F6335C7C0F0388716A07D23DF00BED3E6EFABBC96D403D11896122508</Huella>
+        </RegistroAnterior>
+    </Encadenamiento> 
+    */
+    
+        // comprobar si existe una factura anterior y obtener previous_hash
+        $previousInvoice = $invoice->id - 1;
+        if($previousInvoice < 1){
+            $previousInvoice = null;
+            $encadenamiento = [              
+                'PrimerRegistro' => 'S',
+            ];
+        } else {
+            // obtenemos los datos hash, number, date de la factura anterior
+            $dataPreviousInvoice = Invoice::find($previousInvoice, ['number', 'date', 'hash']);
+            $encadenamiento1 = [    
+                'IDEmisorFactura' => $issuerVat,            
+                'NumSerieFactura' => $dataPreviousInvoice->number,
+                'FechaExpedicionFactura' => $dataPreviousInvoice->date->format('d-m-Y'),
+                'Huella' => $dataPreviousInvoice->hash,
+            ];
+            $encadenamiento = [              
+                'RegistroAnterior' => $encadenamiento1                
             ];
         }
 
@@ -86,10 +124,10 @@ class AeatClient
             'invoice_type' => $invoice->type->value ?? (string)$invoice->type,
             'total_tax' => (string)$invoice->tax,
             'total_amount' => (string)$invoice->total,
-            'previous_hash' => '', // Si aplica, para encadenamiento
+            'previous_hash' => $dataPreviousInvoice->hash ?? '',
             'generated_at' => now()->format('c'),
         ];
-        $hashResult = \Squareetlabs\VeriFactu\Helpers\HashHelper::generateInvoiceHash($hashData);
+	    $hashResult = \Squareetlabs\VeriFactu\Helpers\HashHelper::generateInvoiceHash($hashData);	
 
         // 6. Construir RegistroAlta
         $registroAlta = [
@@ -97,20 +135,20 @@ class AeatClient
             'IDFactura' => [
                 'IDEmisorFactura' => $issuerVat,
                 'NumSerieFactura' => $invoice->number,
-                'FechaExpedicionFactura' => $invoice->date->format('Y-m-d'),
+                'FechaExpedicionFactura' => $invoice->date->format('d-m-Y'),
             ],
             'NombreRazonEmisor' => $issuerName,
             'TipoFactura' => $invoice->type->value ?? (string)$invoice->type,
             'DescripcionOperacion' => 'Invoice issued',
             'Destinatarios' => [
                 'IDDestinatario' => $destinatarios,
-            ],
-            'Desglose' => $desgloses,
+	    ],
+	    'Desglose' => [
+     		   'DetalleDesglose' => $desgloses
+    	    ],
             'CuotaTotal' => (string)$invoice->tax,
             'ImporteTotal' => (string)$invoice->total,
-            'Encadenamiento' => [
-                'PrimerRegistro' => 'S',
-            ],
+            'Encadenamiento' => $encadenamiento,
             'SistemaInformatico' => [
                 'NombreRazon' => $issuerName,
                 'NIF' => $issuerVat,
@@ -132,7 +170,9 @@ class AeatClient
             'RegistroFactura' => [
                 [ 'RegistroAlta' => $registroAlta ]
             ],
-        ];
+	];
+
+    // la URL del QR tiene este formato: https://prewww2.aeat.es/wlpl/TIKE-CONT/ValidarQR?nif=XXXXXXXXY&numserie=YYYY...YYYY&fecha=DD-MM-AAAA&importe=NNNNNNNNN.DD
 
         // 7. Configurar SoapClient y enviar
         $wsdl = $this->production
@@ -140,8 +180,8 @@ class AeatClient
             : 'https://prewww2.aeat.es/static_files/common/internet/dep/aplicaciones/es/aeat/tikeV1.0/cont/ws/SistemaFacturacion.wsdl';
         $location = $this->production
             ? 'https://www1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP'
-            : 'https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP';
-        $options = [
+	    : 'https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP';
+	    $options = [
             'local_cert' => $this->certPath,
             'passphrase' => $this->certPassword,
             'trace' => true,
@@ -160,12 +200,14 @@ class AeatClient
         try {
             $client = new \SoapClient($wsdl, $options);
             $client->__setLocation($location);
-            $response = $client->__soapCall('RegFactuSistemaFacturacion', [$body]);
+	        $response = $client->__soapCall('RegFactuSistemaFacturacion', [$body]);
             return [
                 'status' => 'success',
                 'request' => $client->__getLastRequest(),
                 'response' => $client->__getLastResponse(),
                 'aeat_response' => $response,
+                'previous_hash' => $dataPreviousInvoice->hash ?? null, 
+                'qr_url' => 'https://prewww2.aeat.es/wlpl/TIKE-CONT/ValidarQR?nif='.$issuerVat.'&numserie='.$invoice->number.'&fecha='.$invoice->date->format('d-m-Y').'&importe='.(string)$invoice->total
             ];
         } catch (\SoapFault $e) {
             return [
